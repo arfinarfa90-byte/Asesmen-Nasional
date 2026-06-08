@@ -16,7 +16,11 @@ import {
   Layers,
   CheckCircle2,
   FileSpreadsheet,
-  Clock
+  Clock,
+  Sparkles,
+  Bot,
+  FileText,
+  Loader2
 } from "lucide-react";
 import { Question, Participant, ExamSession, StudentProgress, QuestionType } from "../types";
 
@@ -56,6 +60,24 @@ export default function AdminDashboard({
   const [newQType, setNewQType] = useState<QuestionType>(QuestionType.SINGLE_CHOICE);
   const [newQText, setNewQText] = useState("");
   const [newQPoints, setNewQPoints] = useState(20);
+
+  // States for Gemini AI PDF Import and Question setting
+  const [questionTab, setQuestionTab] = useState<"manual" | "pdf">("manual");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfNumQuestions, setPdfNumQuestions] = useState<number>(10);
+  const [isImportingPdf, setIsImportingPdf] = useState<boolean>(false);
+  const [pdfImportStatus, setPdfImportStatus] = useState<string>("");
+  const [pdfImportError, setPdfImportError] = useState<string>("");
+  const [dragActive, setDragActive] = useState<boolean>(false);
+
+  // States for subject selection in manual input and PDF import
+  const [selectedSubject, setSelectedSubject] = useState<string>("Asesmen Literasi (Membaca)");
+  const [pdfSubject, setPdfSubject] = useState<string>("Asesmen Literasi (Membaca)");
+  const [customSubjectActive, setCustomSubjectActive] = useState<boolean>(false);
+  const [customSubjectText, setCustomSubjectText] = useState<string>("");
+  const [customPdfSubjectActive, setCustomPdfSubjectActive] = useState<boolean>(false);
+  const [customPdfSubjectText, setCustomPdfSubjectText] = useState<string>("");
+  const [questionFilterSubject, setQuestionFilterSubject] = useState<string>("Semua");
 
   // States for manual Student creation
   const [newSName, setNewSName] = useState("");
@@ -149,11 +171,14 @@ export default function AdminDashboard({
     e.preventDefault();
     if (!newQText.trim()) return;
 
+    const finalSubj = customSubjectActive ? customSubjectText.trim() : selectedSubject;
+
     const newQ: Question = {
       id: `q_custom_${Date.now()}`,
       number: questions.length + 1,
       type: newQType,
       text: newQText,
+      subject: finalSubj || "Umum/Lainnya",
       points: Number(newQPoints),
     };
 
@@ -192,6 +217,130 @@ export default function AdminDashboard({
     const updated = questions.filter((q) => q.id !== id).map((q, idx) => ({ ...q, number: idx + 1 }));
     onUpdateQuestions(updated);
     triggerToast("Soal berhasil dihapus.");
+  };
+
+  // AI PDF Import handlers
+  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setPdfFile(e.target.files[0]);
+      setPdfImportError("");
+    }
+  };
+
+  const handlePdfDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handlePdfDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setPdfFile(e.dataTransfer.files[0]);
+      setPdfImportError("");
+    }
+  };
+
+  const handleImportPDFWithGemini = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pdfFile) {
+      setPdfImportError("Harap pilih atau tarik berkas PDF / Dokumen soal terlebih dahulu.");
+      return;
+    }
+
+    setIsImportingPdf(true);
+    setPdfImportError("");
+    setPdfImportStatus("Membaca berkas dokumen...");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const rawResult = reader.result as string;
+          const base64String = rawResult.split(",")[1];
+          setPdfImportStatus("Menghubungkan ke Gemini AI & mengetik ulang butir soal... (Bisa memakan waktu 15-30 detik)");
+
+          const targetSubj = customPdfSubjectActive ? customPdfSubjectText.trim() : pdfSubject;
+
+          const res = await fetch("/api/questions/import-pdf", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileBase64: base64String,
+              mimeType: pdfFile.type || "application/pdf",
+              numQuestions: pdfNumQuestions,
+              subject: targetSubj || "Umum/Lainnya",
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok || !data.success) {
+            throw new Error(data.error || "Gagal mengimpor dari AI server.");
+          }
+
+          const parsedQuestions: Question[] = data.questions.map((q: any, index: number) => {
+            let answerObj = q.correctAnswer;
+            if (q.type === QuestionType.MATCHING && typeof q.correctAnswer === "string") {
+              try {
+                answerObj = q.correctAnswer.split(",").map((pairStr: string) => {
+                  const [row, col] = pairStr.split("-");
+                  return { rowId: row?.trim(), colId: col?.trim() };
+                });
+              } catch (e) {
+                answerObj = q.correctAnswer;
+              }
+            } else if (q.type === QuestionType.COMPLEX_CHOICE && typeof q.correctAnswer === "string") {
+              answerObj = q.correctAnswer.split(",").map((c: string) => c.trim());
+            }
+
+            return {
+              id: q.id || `q_pdf_${Date.now()}_${index}`,
+              number: questions.length + index + 1,
+              type: q.type as QuestionType,
+              text: q.text,
+              subject: q.subject || targetSubj || "Umum/Lainnya",
+              points: Number(q.points) || 10,
+              choices: q.choices,
+              matchingRows: q.matchingRows,
+              matchingCols: q.matchingCols,
+              correctAnswer: answerObj,
+            };
+          });
+
+          onUpdateQuestions([...questions, ...parsedQuestions]);
+          setPdfFile(null);
+          setPdfImportStatus("");
+          triggerToast(`Berhasil mengimpor ${parsedQuestions.length} butir soal secara presisi via Gemini AI!`);
+        } catch (err: any) {
+          console.error("Gemini upload error:", err);
+          setPdfImportError(err.message || "Gagal mengolah dokumen menggunakan Gemini AI.");
+          setPdfImportStatus("");
+        } finally {
+          setIsImportingPdf(false);
+        }
+      };
+
+      reader.onerror = () => {
+        setPdfImportError("Gagal membaca berkas lokal.");
+        setIsImportingPdf(false);
+        setPdfImportStatus("");
+      };
+
+      reader.readAsDataURL(pdfFile);
+    } catch (err: any) {
+      setPdfImportError("Gagal memproses file unggahan.");
+      setIsImportingPdf(false);
+      setPdfImportStatus("");
+    }
   };
 
   // Manual student add
@@ -742,68 +891,297 @@ export default function AdminDashboard({
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Visual creation form */}
-                <form onSubmit={handleAddQuestion} className="space-y-4 p-5 bg-slate-50 border border-slate-200 rounded-lg h-fit">
-                  <h3 className="font-extrabold text-slate-800 text-sm border-b pb-2">
-                    Buat Soal Manual Baru
-                  </h3>
-
-                  <div className="space-y-3 text-xs">
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Tipe Soal ANBK:</label>
-                      <select
-                        id="select-add-qtype"
-                        className="w-full bg-white border rounded px-2.5 py-1.5 font-bold text-slate-700"
-                        value={newQType}
-                        onChange={(e) => setNewQType(e.target.value as QuestionType)}
-                      >
-                        <option value={QuestionType.SINGLE_CHOICE}>Pilihan Ganda (Satu Jawaban)</option>
-                        <option value={QuestionType.COMPLEX_CHOICE}>Pilihan Ganda Kompleks (Checkbox)</option>
-                        <option value={QuestionType.MATCHING}>Menjodohkan (Grid Pasangan)</option>
-                        <option value={QuestionType.SHORT_ANSWER}>Isian Singkat</option>
-                        <option value={QuestionType.ESSAY}>Uraian / Essay</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Teks Pertanyaan Soal:</label>
-                      <textarea
-                        id="input-add-qtext"
-                        rows={3}
-                        className="w-full bg-white border rounded p-2 text-slate-800"
-                        placeholder="Ketik deskripsi atau soal..."
-                        value={newQText}
-                        onChange={(e) => setNewQText(e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Bobot Points:</label>
-                      <input
-                        id="input-add-qpoints"
-                        type="number"
-                        className="w-full bg-white border rounded px-2.5 py-1.5 font-mono font-bold"
-                        value={newQPoints}
-                        onChange={(e) => setNewQPoints(Number(e.target.value))}
-                      />
-                    </div>
-
-                    {/* Hint text */}
-                    <p className="text-[10px] text-slate-400">
-                      * Opsi standar pilihan ganda dan grid menjodohkan acuan akan didaftarkan secara otomatis sebagai templat awal yang siap disunting.
-                    </p>
+                               {/* Dual-tab Form Container */}
+                <div className="space-y-4 p-5 bg-slate-50 border border-slate-200 rounded-lg h-fit">
+                  {/* Tab Selector */}
+                  <div className="flex border-b border-slate-200 pb-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setQuestionTab("manual")}
+                      className={`flex-1 py-1.5 px-2 text-center text-xs font-black rounded uppercase tracking-wider transition-all cursor-pointer ${
+                        questionTab === "manual"
+                          ? "bg-[#1e3c72] text-white shadow-sm"
+                          : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                      }`}
+                    >
+                      Ketik Manual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuestionTab("pdf")}
+                      className={`flex-1 py-1.5 px-2 text-center text-xs font-black rounded uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        questionTab === "pdf"
+                          ? "bg-purple-700 text-white shadow-sm"
+                          : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Impor PDF (AI)
+                    </button>
                   </div>
 
-                  <button
-                    id="btn-submit-add-question"
-                    type="submit"
-                    className="w-full bg-[#1e3c72] hover:bg-blue-800 text-white font-extrabold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Plus className="h-4.5 w-4.5" />
-                    <span>Tambah Ke Bank Soal</span>
-                  </button>
-                </form>
+                  {questionTab === "manual" ? (
+                    <form onSubmit={handleAddQuestion} className="space-y-4">
+                      <h3 className="font-extrabold text-slate-800 text-xs uppercase tracking-wide flex items-center gap-1">
+                        <Plus className="h-4 w-4 text-[#1e3c72]" />
+                        Buat Soal Manual Baru
+                      </h3>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Mata Pelajaran:</label>
+                          <select
+                            id="select-add-subject"
+                            className="w-full bg-white border rounded px-2.5 py-1.5 font-bold text-slate-700 animate-fade-in"
+                            value={selectedSubject}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setSelectedSubject(val);
+                              if (val === "CUSTOM") {
+                                setCustomSubjectActive(true);
+                              } else {
+                                setCustomSubjectActive(false);
+                              }
+                            }}
+                          >
+                            <option value="Asesmen Literasi (Membaca)">Asesmen Literasi (Membaca)</option>
+                            <option value="Asesmen Numerasi (Matematika)">Asesmen Numerasi (Matematika)</option>
+                            <option value="Survei Karakter & Lingkungan Belajar">Survei Karakter & Lingkungan Belajar</option>
+                            <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                            <option value="Bahasa Inggris">Bahasa Inggris</option>
+                            <option value="CUSTOM">-- Ketik Mata Pelajaran Kustom --</option>
+                          </select>
+                          
+                          {customSubjectActive && (
+                            <input
+                              type="text"
+                              required
+                              className="mt-1.5 w-full bg-white border rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold border-blue-300 focus:outline-[#1e3c72]"
+                              placeholder="Ketik mata pelajaran..."
+                              value={customSubjectText}
+                              onChange={(e) => setCustomSubjectText(e.target.value)}
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Tipe Soal ANBK:</label>
+                          <select
+                            id="select-add-qtype"
+                            className="w-full bg-white border rounded px-2.5 py-1.5 font-bold text-slate-700"
+                            value={newQType}
+                            onChange={(e) => setNewQType(e.target.value as QuestionType)}
+                          >
+                            <option value={QuestionType.SINGLE_CHOICE}>Pilihan Ganda (Satu Jawaban)</option>
+                            <option value={QuestionType.COMPLEX_CHOICE}>Pilihan Ganda Kompleks (Checkbox)</option>
+                            <option value={QuestionType.MATCHING}>Menjodohkan (Grid Pasangan)</option>
+                            <option value={QuestionType.SHORT_ANSWER}>Isian Singkat</option>
+                            <option value={QuestionType.ESSAY}>Uraian / Essay</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Teks Pertanyaan Soal:</label>
+                          <textarea
+                            id="input-add-qtext"
+                            rows={3}
+                            className="w-full bg-white border rounded p-2 text-slate-800"
+                            placeholder="Ketik deskripsi atau soal..."
+                            value={newQText}
+                            onChange={(e) => setNewQText(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Bobot Points:</label>
+                          <input
+                            id="input-add-qpoints"
+                            type="number"
+                            className="w-full bg-white border rounded px-2.5 py-1.5 font-mono font-bold"
+                            value={newQPoints}
+                            onChange={(e) => setNewQPoints(Number(e.target.value))}
+                          />
+                        </div>
+
+                        {/* Hint text */}
+                        <p className="text-[10px] text-slate-400">
+                          * Opsi standar pilihan ganda dan grid menjodohkan acuan akan didaftarkan secara otomatis sebagai templat awal yang siap disunting.
+                        </p>
+                      </div>
+
+                      <button
+                        id="btn-submit-add-question"
+                        type="submit"
+                        className="w-full bg-[#1e3c72] hover:bg-blue-800 text-white font-extrabold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                      >
+                        <Plus className="h-4.5 w-4.5" />
+                        <span>Tambah Ke Bank Soal</span>
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleImportPDFWithGemini} className="space-y-4">
+                      <div className="flex items-center gap-1.5 text-purple-800">
+                        <Bot className="h-5 w-5 text-purple-700" />
+                        <h3 className="font-extrabold text-purple-850 text-xs uppercase tracking-wide">
+                          Pengetikan Presisi ver. Gemini AI
+                        </h3>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed font-medium">
+                        Unggah berkas soal format PDF atau berkas teks. Gemini AI akan menganalisis dokumen dan mengetik ulang persis dengan dokumen asli.
+                      </p>
+
+                      <div className="space-y-4 text-xs">
+                        {/* Mata Pelajaran Selector */}
+                        <div className="bg-white p-3 rounded-md border border-slate-200 space-y-1.5">
+                          <label className="block font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                            Mata Pelajaran Soal:
+                          </label>
+                          <select
+                            id="select-pdf-subject"
+                            className="w-full bg-slate-50 border rounded px-2.5 py-1.5 font-bold text-slate-700 text-xs focus:ring-1 focus:ring-purple-500"
+                            value={pdfSubject}
+                            disabled={isImportingPdf}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setPdfSubject(val);
+                              if (val === "CUSTOM") {
+                                setCustomPdfSubjectActive(true);
+                              } else {
+                                setCustomPdfSubjectActive(false);
+                              }
+                            }}
+                          >
+                            <option value="Asesmen Literasi (Membaca)">Asesmen Literasi (Membaca)</option>
+                            <option value="Asesmen Numerasi (Matematika)">Asesmen Numerasi (Matematika)</option>
+                            <option value="Survei Karakter & Lingkungan Belajar">Survei Karakter & Lingkungan Belajar</option>
+                            <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                            <option value="Bahasa Inggris">Bahasa Inggris</option>
+                            <option value="CUSTOM">-- Ketik Mata Pelajaran Kustom --</option>
+                          </select>
+                          
+                          {customPdfSubjectActive && (
+                            <input
+                              type="text"
+                              required
+                              disabled={isImportingPdf}
+                              className="w-full bg-white border rounded px-2.5 py-1.5 text-xs text-slate-800 font-bold focus:outline-purple-750"
+                              placeholder="Ketik mata pelajaran kustom..."
+                              value={customPdfSubjectText}
+                              onChange={(e) => setCustomPdfSubjectText(e.target.value)}
+                            />
+                          )}
+                        </div>
+
+                        {/* Drag & Drop File Container */}
+                        <div
+                          onDragEnter={handlePdfDrag}
+                          onDragOver={handlePdfDrag}
+                          onDragLeave={handlePdfDrag}
+                          onDrop={handlePdfDrop}
+                          className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all ${
+                            dragActive
+                              ? "border-purple-500 bg-purple-50"
+                              : pdfFile
+                              ? "border-emerald-500 bg-emerald-50/10"
+                              : "border-slate-300 hover:border-purple-400 bg-white"
+                          }`}
+                        >
+                          <input
+                            id="pdf-file-upload"
+                            type="file"
+                            accept=".pdf,text/plain"
+                            className="hidden"
+                            onChange={handlePdfFileChange}
+                            disabled={isImportingPdf}
+                          />
+                          <label htmlFor="pdf-file-upload" className="cursor-pointer block space-y-2">
+                            <FileText className={`h-8 w-8 mx-auto ${pdfFile ? "text-emerald-500 animate-bounce" : "text-slate-400"}`} />
+                            <span className="block text-slate-700 font-bold text-xs select-none">
+                              {pdfFile ? pdfFile.name : "Klik atau seret berkas PDF di sini"}
+                            </span>
+                            {pdfFile ? (
+                              <span className="block text-[10px] text-emerald-600 font-black">
+                                {(pdfFile.size / 1024).toFixed(1)} KB - Siap diketik otomatis
+                              </span>
+                            ) : (
+                              <span className="block text-[10px] text-slate-400">
+                                Berkas PDF atau berkas teks ujian
+                              </span>
+                            )}
+                          </label>
+                        </div>
+
+                        {/* Setting Jumlah Butir Soal 1 - 100 */}
+                        <div className="bg-white p-3 rounded-md border border-slate-200 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="block font-bold text-slate-700 text-[11px] uppercase tracking-wider">
+                              Jumlah Soal Ditargetkan:
+                            </label>
+                            <span className="font-mono text-xs font-black text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                              {pdfNumQuestions} Butir Soal
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="range"
+                              min={1}
+                              max={100}
+                              value={pdfNumQuestions}
+                              disabled={isImportingPdf}
+                              onChange={(e) => setPdfNumQuestions(Number(e.target.value))}
+                              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-705"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={pdfNumQuestions}
+                              disabled={isImportingPdf}
+                              onChange={(e) => setPdfNumQuestions(Math.min(100, Math.max(1, Number(e.target.value) || 1)))}
+                              className="w-14 bg-slate-50 border rounded text-center py-1 text-xs font-mono font-black border-slate-350 text-slate-800"
+                            />
+                          </div>
+                          <p className="text-[9px] text-slate-400 font-semibold leading-relaxed">
+                            Batas penyesuaian: 1 s.d. 100 soal. Apabila dokumen memiliki butir soal kurang dari target, AI akan melengkapi dengan soal relevan tambahan otomatis.
+                          </p>
+                        </div>
+
+                        {pdfImportError && (
+                          <div className="bg-rose-50 border-l-2 border-rose-500 p-2.5 rounded text-[11px] text-rose-800 font-semibold leading-relaxed">
+                            {pdfImportError}
+                          </div>
+                        )}
+
+                        {isImportingPdf && (
+                          <div className="bg-purple-50 border-l-2 border-purple-500 p-3 rounded space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 text-purple-700 animate-spin" />
+                              <span className="font-bold text-purple-900 text-xs">Pengetikan AI Berlangsung...</span>
+                            </div>
+                            <p className="text-[10px] text-purple-700 leading-normal font-medium italic">
+                              {pdfImportStatus}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <button
+                        id="btn-submit-import-pdf"
+                        type="submit"
+                        disabled={isImportingPdf || !pdfFile}
+                        className={`w-full text-white font-extrabold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
+                          isImportingPdf || !pdfFile
+                            ? "bg-slate-300 text-slate-500 border-slate-300 cursor-not-allowed"
+                            : "bg-purple-700 hover:bg-purple-800 shadow"
+                        }`}
+                      >
+                        <Sparkles className="h-4.5 w-4.5" />
+                        <span>Ketik Otomatis Soal PDF</span>
+                      </button>
+                    </form>
+                  )}
+                </div>
 
                 {/* List bank items */}
                 <div className="lg:col-span-2 space-y-3 max-h-[420px] overflow-y-auto pr-1">
@@ -812,37 +1190,59 @@ export default function AdminDashboard({
                     <span className="text-[10px] bg-blue-100 text-[#1e3c72] px-2 py-0.5 rounded font-bold">Autosaved</span>
                   </h3>
 
-                  {questions.map((q) => (
-                    <div
-                      key={q.id}
-                      className="p-4 border rounded-lg hover:border-slate-400 transition-all shadow-sm bg-white flex justify-between items-start gap-4"
+                  {/* Saring Mata Pelajaran Selector */}
+                  <div className="bg-slate-50 p-2 rounded border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs">
+                    <span className="font-bold text-slate-600">Saring menurut Mata Pelajaran:</span>
+                    <select
+                      value={questionFilterSubject}
+                      onChange={(e) => setQuestionFilterSubject(e.target.value)}
+                      className="bg-white border rounded px-2 py-1 text-xs font-bold text-slate-700 focus:outline-[#1e3c72]"
                     >
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="bg-[#1e3c72] text-white font-bold h-5 w-5 rounded-full flex items-center justify-center text-[10px]">
-                            {q.number}
-                          </span>
-                          <span className="bg-slate-100 border text-slate-600 font-bold px-2 py-0.5 rounded text-[10px]">
-                            {q.type}
-                          </span>
-                          <span className="font-black text-rose-700">
-                            {q.points} Poin
-                          </span>
-                        </div>
-                        <p className="text-slate-800 leading-relaxed font-semibold text-sm line-clamp-2">
-                          {q.text}
-                        </p>
-                      </div>
+                      <option value="Semua">Semua Mata Pelajaran ({questions.length})</option>
+                      {Array.from(new Set(questions.map((q) => q.subject || "Umum/Lainnya"))).map((subj) => (
+                        <option key={subj} value={subj}>
+                          {subj} ({questions.filter((q) => (q.subject || "Umum/Lainnya") === subj).length} Soal)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                      <button
-                        id={`btn-del-q-${q.id}`}
-                        onClick={() => handleDeleteQuestion(q.id)}
-                        className="text-slate-350 hover:text-red-600 p-1 border rounded bg-slate-50 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
+                  {questions
+                    .filter((q) => questionFilterSubject === "Semua" || (q.subject || "Umum/Lainnya") === questionFilterSubject)
+                    .map((q) => (
+                      <div
+                        key={q.id}
+                        className="p-4 border rounded-lg hover:border-slate-400 transition-all shadow-sm bg-white flex justify-between items-start gap-4"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="bg-[#1e3c72] text-white font-bold h-5 w-5 rounded-full flex items-center justify-center text-[10px]">
+                              {q.number}
+                            </span>
+                            <span className="bg-slate-100 border text-slate-600 font-bold px-2 py-0.5 rounded text-[10px]">
+                              {q.type}
+                            </span>
+                            <span className="bg-blue-50 border border-blue-200 text-[#1e3c72] font-black px-2 py-0.5 rounded text-[10px] truncate max-w-[200px]" title={q.subject || "Umum/Lainnya"}>
+                              📚 {q.subject || "Umum/Lainnya"}
+                            </span>
+                            <span className="font-black text-rose-700">
+                              {q.points} Poin
+                            </span>
+                          </div>
+                          <p className="text-slate-800 leading-relaxed font-semibold text-sm">
+                            {q.text}
+                          </p>
+                        </div>
+
+                        <button
+                          id={`btn-del-q-${q.id}`}
+                          onClick={() => handleDeleteQuestion(q.id)}
+                          className="text-slate-350 hover:text-red-600 p-1 border rounded bg-slate-50 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
                 </div>
 
               </div>

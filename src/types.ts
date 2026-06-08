@@ -30,6 +30,7 @@ export interface Question {
   number: number;
   type: QuestionType;
   text: string;
+  subject?: string; // Mata Pelajaran (e.g. Asesmen Literasi, Asesmen Numerasi, etc.)
   imageUrl?: string;
   audioUrl?: string; // Optional audio file
   choices?: Choice[]; // Used for SINGLE_CHOICE and COMPLEX_CHOICE

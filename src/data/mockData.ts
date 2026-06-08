@@ -8,6 +8,7 @@ export const defaultQuestions: Question[] = [
     id: "q1",
     number: 1,
     type: QuestionType.SINGLE_CHOICE,
+    subject: "Asesmen Numerasi (Matematika)",
     text: "Perangkat keras komputer yang berfungsi sebagai unit pemroses utama untuk mengeksekusi instruksi data adalah...",
     choices: [
       { id: "A", text: "RAM (Random Access Memory)" },
@@ -22,6 +23,7 @@ export const defaultQuestions: Question[] = [
     id: "q2",
     number: 2,
     type: QuestionType.COMPLEX_CHOICE,
+    subject: "Asesmen Literasi (Membaca)",
     text: "Manakah di antara pilihan berikut yang termasuk dalam sistem operasi berbasis Open Source? (Pilih semua jawaban yang benar)",
     choices: [
       { id: "A", text: "Ubuntu Linux" },
@@ -37,6 +39,7 @@ export const defaultQuestions: Question[] = [
     id: "q3",
     number: 3,
     type: QuestionType.MATCHING,
+    subject: "Survei Karakter & Lingkungan Belajar",
     text: "Jodohkanlah perangkat periferal komputer berikut dengan kategori fungsional yang tepat!",
     matchingRows: [
       { id: "row1", text: "Keyboard Mekanikal" },
@@ -61,6 +64,7 @@ export const defaultQuestions: Question[] = [
     id: "q4",
     number: 4,
     type: QuestionType.SHORT_ANSWER,
+    subject: "Asesmen Numerasi (Matematika)",
     text: "Sebutkan nama sistem operasi berlisensi gratis dan open-source yang berlambang hewan maskot seekor pinguin bernama Tux!",
     correctAnswer: "Linux",
     points: 15
@@ -69,6 +73,7 @@ export const defaultQuestions: Question[] = [
     id: "q5",
     number: 5,
     type: QuestionType.ESSAY,
+    subject: "Asesmen Literasi (Membaca)",
     text: "Menurut pendapat Anda, mengapa keamanan siber (cybersecurity) sangat penting di era digitalisasi pendidikan dan infrastruktur Computer-Based Test (CBT) saat ini? Jelaskan strategi mitigasi sederhana untuk mencegah kebocoran soal ujian!",
     correctAnswer: "",
     points: 15
