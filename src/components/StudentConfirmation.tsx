@@ -191,7 +191,8 @@ export default function StudentConfirmation({
                           weekday: "long",
                           year: "numeric",
                           month: "long",
-                          day: "numeric"
+                          day: "numeric",
+                          timeZone: "Asia/Jayapura"
                         })}
                       </td>
                     </tr>
@@ -202,8 +203,8 @@ export default function StudentConfirmation({
                           Waktu Server
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono">
-                        {new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB
+                      <td className="px-4 py-3 font-mono text-emerald-700 font-extrabold">
+                        {new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jayapura" })} WIT (Waktu Indonesia Timur)
                       </td>
                     </tr>
                     <tr>

@@ -15,7 +15,8 @@ import {
   Info,
   Layers,
   CheckCircle2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Clock
 } from "lucide-react";
 import { Question, Participant, ExamSession, StudentProgress, QuestionType } from "../types";
 
@@ -63,6 +64,51 @@ export default function AdminDashboard({
   const [newSGender, setNewSGender] = useState<"L" | "P">("L");
   const [newSCard, setNewSCard] = useState("");
   const [newSClass, setNewSClass] = useState("XII TKJ 1");
+
+  const [anbkSchedule, setAnbkSchedule] = useState([
+    {
+      sesi: "Sesi I (Pagi)",
+      waktu: "08.00 - 10.00 WIT",
+      mapel: "Asesmen Literasi (Membaca)",
+      kelas: ["XII TKJ 1", "XII TKJ 2"],
+      proktor: "Laurensius Gobay, S.Pd.",
+      status: "Selesai"
+    },
+    {
+      sesi: "Sesi II (Siang)",
+      waktu: "11.00 - 13.00 WIT",
+      mapel: "Asesmen Numerasi (Matematika)",
+      kelas: ["XII RPL 1", "XII RPL 2"],
+      proktor: "Arfin Arfa, S.Kom.",
+      status: "Aktif"
+    },
+    {
+      sesi: "Sesi III (Sore)",
+      waktu: "14.30 - 16.30 WIT",
+      mapel: "Survei Karakter & Lingkungan Belajar",
+      kelas: ["XII MM 1", "XII MM 2"],
+      proktor: "Dina Mariana, M.T.",
+      status: "Belum Mulai"
+    }
+  ]);
+
+  const applyScheduleSession = (sch: typeof anbkSchedule[0]) => {
+    setSessionSubject(sch.mapel);
+    setSessionDuration(120);
+    const updated = {
+      ...session,
+      name: sch.mapel,
+      durationMinutes: 120,
+    };
+    onChangeSession(updated);
+    setAnbkSchedule((prev) =>
+      prev.map((s) => ({
+        ...s,
+        status: s.sesi === sch.sesi ? "Aktif" : s.status === "Aktif" ? "Belum Mulai" : s.status,
+      }))
+    );
+    triggerToast(`Berhasil menerapkan ${sch.sesi} (${sch.mapel}) sebagai sesi ujian aktif.`);
+  };
 
   // Status message
   const [toastMessage, setToastMessage] = useState("");
@@ -430,8 +476,8 @@ export default function AdminDashboard({
                               {student.status}
                             </span>
                           </td>
-                          <td className="px-4 py-4 text-center text-xs font-mono text-slate-400">
-                            {new Date(student.lastActive).toLocaleTimeString("id-ID")} WIB
+                          <td className="px-4 py-4 text-center text-xs font-mono text-slate-500 font-semibold">
+                            {new Date(student.lastActive).toLocaleTimeString("id-ID", { timeZone: "Asia/Jayapura", hour: "2-digit", minute: "2-digit", second: "2-digit" })} WIT
                           </td>
                           <td className="px-4 py-4 text-center">
                             <button
@@ -553,6 +599,123 @@ export default function AdminDashboard({
                 </div>
 
               </div>
+
+              {/* Penjadwalan Harian ANBK (6 Kelas, 3 Mapel per hari - WIT) */}
+              <div className="mt-8 border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                <div className="bg-[#0f172a] text-white p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div>
+                    <h3 className="font-extrabold text-sm flex items-center gap-2 uppercase tracking-wider text-yellow-400">
+                      <Clock className="h-5 w-5" />
+                      Penjadwalan Harian ANBK (6 Kelas & 3 Mata Pelajaran - Sesi WIT)
+                    </h3>
+                    <p className="text-[11px] text-slate-300">
+                      Sesi ujian sinkron dengan Waktu Indonesia Timur (WIT). Pilih sesi harian untuk diaktifkan ke peserta ujian.
+                    </p>
+                  </div>
+                  <span className="bg-amber-600 text-white font-mono text-[10px] font-black px-2.5 py-1 rounded tracking-wide uppercase">
+                    UTC +09:00 (WIT)
+                  </span>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {anbkSchedule.map((sch) => {
+                      const isActive = sch.status === "Aktif" || session.name === sch.mapel;
+                      return (
+                        <div
+                          key={sch.sesi}
+                          className={`border rounded-lg p-4 flex flex-col justify-between transition-all duration-300 ${
+                            isActive
+                              ? "border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/20 shadow-md"
+                              : "border-slate-200 bg-slate-50/50 hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-start">
+                              <span className="font-black text-xs text-[#1e3c72] uppercase tracking-wide">
+                                {sch.sesi}
+                              </span>
+                              <span
+                                className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${
+                                  sch.status === "Selesai"
+                                    ? "bg-slate-250 border-slate-300 text-slate-600"
+                                    : sch.status === "Aktif" || isActive
+                                    ? "bg-emerald-100 border-emerald-300 text-emerald-800 animate-pulse font-extrabold"
+                                    : "bg-blue-105 border-blue-200 text-blue-700"
+                                }`}
+                              >
+                                {isActive ? "AKTIF" : sch.status}
+                              </span>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-xs text-slate-400">Mata Pelajaran</h4>
+                              <p className="font-extrabold text-[#1e3c72] text-sm leading-tight">
+                                {sch.mapel}
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-xs text-slate-400">Waktu Pelaksanaan (WIT)</h4>
+                              <p className="font-mono text-xs font-bold text-slate-800 flex items-center gap-1">
+                                <Clock className="h-3.5 w-3.5 text-slate-400" />
+                                {sch.waktu}
+                              </p>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-xs text-slate-400">Daftar Kelas (2 Kelas / Sesi)</h4>
+                              <div className="flex gap-1.5 mt-1 flex-wrap">
+                                {sch.kelas.map((cls) => (
+                                  <span key={cls} className="bg-slate-200/85 border border-slate-300 text-slate-800 text-[10px] px-2 py-0.5 rounded font-black">
+                                    {cls}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="pt-2 text-[11px] border-t border-dashed border-slate-200">
+                              <span className="text-slate-400 font-semibold block">Pengawas:</span>
+                              <span className="font-bold text-slate-700">{sch.proktor}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            id={`btn-apply-schedule-${sch.sesi.replace(/\s+/g, '')}`}
+                            type="button"
+                            onClick={() => applyScheduleSession(sch)}
+                            disabled={isActive}
+                            className={`w-full mt-4 py-2 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              isActive
+                                ? "bg-emerald-600 text-white cursor-default"
+                                : "bg-yellow-500 hover:bg-yellow-600 text-slate-900 shadow hover:shadow-md"
+                            }`}
+                          >
+                            {isActive ? "✓ Sesi Sedang Aktif" : "Aktifkan Sesi Ini"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded text-xs">
+                    <h4 className="font-extrabold text-[#172d54] mb-1 flex items-center gap-1.5">
+                      <Info className="h-4 w-4 text-blue-600" />
+                      Informasi Penjadwalan Multi-Kelas Harian (ANBK Nasional)
+                    </h4>
+                    <p className="text-slate-700 font-semibold leading-relaxed leading-5">
+                      Sesuai pedoman pelaksanaan Asesmen Nasional Berbasis Komputer (ANBK) di Wilayah Waktu Indonesia Timur (WIT):
+                      <br/>
+                      1. Setiap harinya dijadwalkan <strong className="text-[#1e3c72]">3 Mata Pelajaran</strong> utama yang terbagi ke dalam <strong className="text-[#1e3c72]">3 Sesi harian</strong>.
+                      <br/>
+                      2. Sekolah mengelompokkan <strong className="text-[#1e3c72]">6 Kelas</strong> (rombongan belajar) ke masing-masing sesi harian secara berpasangan (2 kelas per sesi) untuk menyesuaikan kapasitas laboratorium komputer sekolah.
+                      <br/>
+                      3. Administrator/Proktor dapat memicu status aktif masing-masing sesi harian di atas, yang otomatis merubah mata pelajaran yang dapat dipilih serta memfilter perolehan token log siswa.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
             </div>
           )}
 

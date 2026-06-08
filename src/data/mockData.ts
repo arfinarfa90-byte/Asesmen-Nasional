@@ -114,6 +114,60 @@ export const defaultParticipants: Participant[] = [
     gender: "P",
     examCardNumber: "U-01010044-8",
     className: "XII RPL 1"
+  },
+  {
+    id: "p5",
+    username: "20260105",
+    passwordHash: "siswa123",
+    name: "Farhan Ardiansyah",
+    gender: "L",
+    examCardNumber: "U-01010045-9",
+    className: "XII RPL 2"
+  },
+  {
+    id: "p6",
+    username: "20260106",
+    passwordHash: "siswa123",
+    name: "Khairunnisa Fitri",
+    gender: "P",
+    examCardNumber: "U-01010046-0",
+    className: "XII RPL 2"
+  },
+  {
+    id: "p7",
+    username: "20260107",
+    passwordHash: "siswa123",
+    name: "Gede Agung",
+    gender: "L",
+    examCardNumber: "U-01010047-1",
+    className: "XII MM 1"
+  },
+  {
+    id: "p8",
+    username: "20260108",
+    passwordHash: "siswa123",
+    name: "Kadek Wulandari",
+    gender: "P",
+    examCardNumber: "U-01010048-2",
+    className: "XII MM 1"
+  },
+  {
+    id: "p9",
+    username: "20260109",
+    passwordHash: "siswa123",
+    name: "Nyoman Surya",
+    gender: "L",
+    examCardNumber: "U-01010049-3",
+    className: "XII MM 2"
+  },
+  {
+    id: "p10",
+    username: "20260110",
+    passwordHash: "siswa123",
+    name: "Ketut Lestari",
+    gender: "P",
+    examCardNumber: "U-01010050-4",
+    className: "XII MM 2"
   }
 ];
 
@@ -122,8 +176,8 @@ export const defaultParticipants: Participant[] = [
  */
 export const defaultSession: ExamSession = {
   id: "s1",
-  name: "ULANGAN UMUM BERSAMA SEMESTER GANJIL",
-  code: "GANJIL_2026",
+  name: "Asesmen Nasional - Literasi Membaca",
+  code: "ANBK_LITERASI",
   token: "ANBK26",
   durationMinutes: 90,
   active: true,
