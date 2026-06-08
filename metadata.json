@@ -1,0 +1,6 @@
+{
+  "name": "ANBK CBT Ujian Semester",
+  "description": "Aplikasi Computer Based Test (CBT) Ulangan Semester dengan desain visual, alokasi waktu, fitur anti-curang, dan panel proktor mirip dengan ANBK Kemendikbud.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

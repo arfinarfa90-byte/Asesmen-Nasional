@@ -1,0 +1,1037 @@
+import React, { useState } from "react";
+import {
+  Settings,
+  Database,
+  Users,
+  Tv,
+  Award,
+  Key,
+  Plus,
+  Trash2,
+  Download,
+  Upload,
+  RefreshCw,
+  LogOut,
+  Info,
+  Layers,
+  CheckCircle2,
+  FileSpreadsheet
+} from "lucide-react";
+import { Question, Participant, ExamSession, StudentProgress, QuestionType } from "../types";
+
+interface AdminDashboardProps {
+  session: ExamSession;
+  onChangeSession: (updated: ExamSession) => void;
+  questions: Question[];
+  onUpdateQuestions: (updated: Question[]) => void;
+  participants: Participant[];
+  onUpdateParticipants: (updated: Participant[]) => void;
+  activeProgress: StudentProgress[];
+  onResetProgress: (participantId: string) => void;
+  onGoToStudentMode: () => void;
+}
+
+type TabType = "session" | "questions" | "students" | "monitoring" | "grades" | "schema";
+
+export default function AdminDashboard({
+  session,
+  onChangeSession,
+  questions,
+  onUpdateQuestions,
+  participants,
+  onUpdateParticipants,
+  activeProgress,
+  onResetProgress,
+  onGoToStudentMode,
+}: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<TabType>("monitoring");
+  
+  // States for new session configurations
+  const [sessionSubject, setSessionSubject] = useState(session.name);
+  const [sessionDuration, setSessionDuration] = useState(session.durationMinutes);
+  const [sessionToken, setSessionToken] = useState(session.token);
+
+  // States for manual Question creation
+  const [newQType, setNewQType] = useState<QuestionType>(QuestionType.SINGLE_CHOICE);
+  const [newQText, setNewQText] = useState("");
+  const [newQPoints, setNewQPoints] = useState(20);
+
+  // States for manual Student creation
+  const [newSName, setNewSName] = useState("");
+  const [newSUsername, setNewSUsername] = useState("");
+  const [newSPassword, setNewSPassword] = useState("");
+  const [newSGender, setNewSGender] = useState<"L" | "P">("L");
+  const [newSCard, setNewSCard] = useState("");
+  const [newSClass, setNewSClass] = useState("XII TKJ 1");
+
+  // Status message
+  const [toastMessage, setToastMessage] = useState("");
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage("");
+    }, 4000);
+  };
+
+  // Generate a random 6-character token
+  const handleGenerateToken = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let token = "";
+    for (let i = 0; i < 6; i++) {
+      token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setSessionToken(token);
+    const updated = { ...session, token };
+    onChangeSession(updated);
+    triggerToast(`Token baru berhasil digenerate: ${token}`);
+  };
+
+  const handleSaveSessionSettings = () => {
+    const updated = {
+      ...session,
+      name: sessionSubject,
+      durationMinutes: sessionDuration,
+      token: sessionToken
+    };
+    onChangeSession(updated);
+    triggerToast("Pengaturan sesi ujian ANBK berhasil diperbarui!");
+  };
+
+  // Manual Question append
+  const handleAddQuestion = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newQText.trim()) return;
+
+    const newQ: Question = {
+      id: `q_custom_${Date.now()}`,
+      number: questions.length + 1,
+      type: newQType,
+      text: newQText,
+      points: Number(newQPoints),
+    };
+
+    if (newQType === QuestionType.SINGLE_CHOICE || newQType === QuestionType.COMPLEX_CHOICE) {
+      newQ.choices = [
+        { id: "A", text: "Opsi Pilihan A" },
+        { id: "B", text: "Opsi Pilihan B" },
+        { id: "C", text: "Opsi Pilihan C" },
+        { id: "D", text: "Opsi Pilihan D" }
+      ];
+      newQ.correctAnswer = "A";
+    } else if (newQType === QuestionType.MATCHING) {
+      newQ.matchingRows = [
+        { id: "row1", text: "Kebutuhan Primer" },
+        { id: "row2", text: "Kebutuhan Sekunder" }
+      ];
+      newQ.matchingCols = [
+        { id: "col1", text: "Pangan & Sandang" },
+        { id: "col2", text: "Arloji & Laptop" }
+      ];
+      newQ.correctAnswer = [
+        { rowId: "row1", colId: "col1" },
+        { rowId: "row2", colId: "col2" }
+      ];
+    } else {
+      newQ.correctAnswer = "Jawaban Acuan";
+    }
+
+    onUpdateQuestions([...questions, newQ]);
+    setNewQText("");
+    triggerToast("Soal baru berhasil ditambahkan ke Bank Soal!");
+  };
+
+  // Delete question
+  const handleDeleteQuestion = (id: string) => {
+    const updated = questions.filter((q) => q.id !== id).map((q, idx) => ({ ...q, number: idx + 1 }));
+    onUpdateQuestions(updated);
+    triggerToast("Soal berhasil dihapus.");
+  };
+
+  // Manual student add
+  const handleAddStudent = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSName.trim() || !newSUsername.trim() || !newSPassword.trim()) return;
+
+    // Check if duplicate username
+    if (participants.some((p) => p.username === newSUsername)) {
+      triggerToast("Gagal! Username/NISN telah digunakan.");
+      return;
+    }
+
+    const newS: Participant = {
+      id: `p_custom_${Date.now()}`,
+      username: newSUsername,
+      passwordHash: newSPassword,
+      name: newSName,
+      gender: newSGender,
+      examCardNumber: newSCard || `U-0101-${Math.floor(1000 + Math.random() * 9000)}-AN`,
+      className: newSClass
+    };
+
+    onUpdateParticipants([...participants, newS]);
+    setNewSName("");
+    setNewSUsername("");
+    setNewSPassword("");
+    setNewSCard("");
+    triggerToast(`Siswa "${newS.name}" berhasil didaftarkan!`);
+  };
+
+  // Remove participant
+  const handleDeleteStudent = (id: string) => {
+    onUpdateParticipants(participants.filter((p) => p.id !== id));
+    triggerToast("Siswa berhasil dihapus dari daftar.");
+  };
+
+  // Simulated Excel spreadsheet parsing generator
+  const simulateExcelUpload = (type: "soal" | "siswa") => {
+    if (type === "siswa") {
+      const simulatedSiswa: Participant[] = [
+        ...participants,
+        {
+          id: `p_excel_1_${Date.now()}`,
+          username: "20269901",
+          passwordHash: "siswa99",
+          name: "Farhan Ardiansyah (Excel)",
+          gender: "L",
+          className: "XII RPL 2",
+          examCardNumber: "U-01010099-1"
+        },
+        {
+          id: `p_excel_2_${Date.now()}`,
+          username: "20269902",
+          passwordHash: "siswa99",
+          name: "Khairunnisa Fitri (Excel)",
+          gender: "P",
+          className: "XII RPL 2",
+          examCardNumber: "U-01010099-2"
+        }
+      ];
+      onUpdateParticipants(simulatedSiswa);
+      triggerToast("Simulasi Import Excel: Berhasil mengimpor 2 data siswa dari Siswa_Template.xlsx!");
+    } else {
+      // Simulate adding custom questions
+      const simulatedSoal: Question[] = [
+        ...questions,
+        {
+          id: `q_excel_1_${Date.now()}`,
+          number: questions.length + 1,
+          type: QuestionType.SINGLE_CHOICE,
+          text: "Manakah prototipe jaringan nirkabel jarak menengah yang memiliki radius 10 hingga 100 meter? (Simulasi Excel)",
+          choices: [
+            { id: "A", text: "PAN (Personal Area Network)" },
+            { id: "B", text: "WLAN (Wireless Local Area Network)" },
+            { id: "C", text: "WWAN (Wireless Wide Area Network)" },
+            { id: "D", text: "WPAN (Wireless Personal Area Network)" }
+          ],
+          correctAnswer: "B",
+          points: 20
+        },
+        {
+          id: `q_excel_2_${Date.now()}`,
+          number: questions.length + 2,
+          type: QuestionType.SHORT_ANSWER,
+          text: "Sebutkan protokol standar terenkripsi yang digunakan untuk mengirim berkas dokumen HTML secara aman lintas web browser! (Simulasi Excel)",
+          correctAnswer: "HTTPS",
+          points: 20
+        }
+      ];
+      onUpdateQuestions(simulatedSoal);
+      triggerToast("Simulasi Import Excel: Berhasil mendaftarkan 2 Soal Baru dari BankSoal_ANBK.xlsx!");
+    }
+  };
+
+  // Download export CSV spreadsheet values for results
+  const downloadResultsCSV = () => {
+    // Generate CSV contents
+    const headers = ["No", "Nama", "No Kartu Ujian", "Kelas", "Benar", "Salah", "Nilai Angka", "Status"];
+    const rows = activeProgress.map((prog, idx) => {
+      const correct = Math.round(((prog.score || 0) * prog.totalQuestions) / 100);
+      const wrong = prog.totalQuestions - correct;
+      return [
+        idx + 1,
+        prog.name,
+        prog.examCardNumber,
+        prog.className || "XII TKJ 1",
+        correct,
+        wrong,
+        prog.score ?? 0,
+        prog.status
+      ];
+    });
+
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `REKAP_NILAI_CBT_${session.code}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    triggerToast("Unduhan data rekapitulasi nilai berekstensi CSV berhasil dikirim!");
+  };
+
+  return (
+    <div id="proktor-dashboard" className="min-h-screen bg-slate-100 flex flex-col font-sans">
+      
+      {/* Top Admin Branding Banner */}
+      <header className="bg-[#0f172a] text-white py-4 px-6 flex flex-col sm:flex-row justify-between items-center border-b-4 border-yellow-500 shadow-md">
+        
+        {/* Branding Title */}
+        <div className="flex items-center gap-3">
+          <div className="bg-gradient-to-tr from-yellow-500 to-amber-600 text-slate-900 rounded-lg p-2.5 h-11 w-11 flex items-center justify-center font-black shadow-lg">
+            AN
+          </div>
+          <div>
+            <h1 className="font-extrabold text-base tracking-wide uppercase flex items-center gap-2">
+              <span>ADMIN & PROKTOR CBT</span>
+              <span className="bg-yellow-500 text-slate-950 font-black text-[10px] px-2 py-0.5 rounded tracking-normal">
+                KEMENDIKBUD
+              </span>
+            </h1>
+            <p className="text-xs text-slate-300">
+              Sistem Manajemen Sesi Ujian Semester & Monitoring Peserta Terpadu
+            </p>
+          </div>
+        </div>
+
+        {/* Global Action switcher */}
+        <div className="mt-3 sm:mt-0 flex items-center gap-3">
+          <button
+            id="admin-btn-preview"
+            onClick={onGoToStudentMode}
+            className="bg-yellow-500 hover:bg-yellow-600 text-[#0f172a] hover:text-black font-extrabold text-xs py-2 px-4 rounded border border-yellow-600 shadow-md flex items-center gap-1.5 transition-all cursor-pointer uppercase tracking-wider"
+          >
+            <span>Masuk Mode CBT Siswa</span>
+            <CheckCircle2 className="h-4 w-4" />
+          </button>
+        </div>
+      </header>
+
+      {/* Main proktor panels frame */}
+      <div className="flex-grow flex flex-col md:flex-row max-w-7xl mx-auto w-full p-4 md:p-6 gap-6">
+        
+        {/* Left Drawer Side Navigation Tabs */}
+        <aside className="w-full md:w-64 bg-slate-900 text-slate-300 rounded-lg shadow-lg border border-slate-800 p-4 shrink-0 flex flex-col justify-between">
+          <div className="space-y-6">
+            <h3 className="text-slate-400 text-[10px] uppercase font-black tracking-widest px-2-accent">
+              Menu Kontrol Ujian
+            </h3>
+
+            <nav className="flex flex-col gap-1">
+              {[
+                { id: "monitoring", label: "Monitoring Peserta", icon: Tv },
+                { id: "session", label: "Pengaturan & Token", icon: Settings },
+                { id: "questions", label: "Manajemen Bank Soal", icon: Database },
+                { id: "students", label: "Daftar Peserta (Siswa)", icon: Users },
+                { id: "grades", label: "Rekap Hasil / Nilai", icon: Award },
+                { id: "schema", label: "Skema Database (Design)", icon: Layers }
+              ].map((item) => {
+                const ActiveIcon = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    id={`sidebar-tab-${item.id}`}
+                    onClick={() => setActiveTab(item.id as TabType)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded font-semibold text-xs tracking-wide cursor-pointer transition-all ${
+                      active
+                        ? "bg-yellow-500 text-slate-900 border-l-4 border-yellow-700"
+                        : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+                    }`}
+                  >
+                    <ActiveIcon className="h-4.5 w-4.5" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="mt-8 pt-4 border-t border-slate-800 space-y-3">
+            <div className="bg-slate-950 p-2 text-center rounded border border-slate-800">
+              <span className="text-[10px] text-slate-500 block font-bold">TOKEN AKTIF:</span>
+              <strong className="text-xl font-mono text-yellow-500 font-black tracking-widest">{session.token}</strong>
+            </div>
+            
+            <p className="text-[10px] text-slate-500 text-center uppercase tracking-wider font-bold">
+              Versi Server: r_prok-2.6
+            </p>
+          </div>
+        </aside>
+
+        {/* Right Main Panel container */}
+        <main className="flex-grow bg-white rounded-lg border border-slate-300 shadow-lg p-6 overflow-hidden flex flex-col">
+          
+          {/* Toast Notification for admin confirmations */}
+          {toastMessage && (
+            <div className="bg-emerald-50 border-l-4 border-emerald-600 text-emerald-900 p-3 rounded text-sm mb-4 font-bold flex items-center gap-2 shadow animate-fade-in z-50">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+              <span>{toastMessage}</span>
+            </div>
+          )}
+
+          {/* Core Content loaded based on navigation tabs */}
+          
+          {/* ======================= TAB 1: MONITORING STUDENTS ======================= */}
+          {activeTab === "monitoring" && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                <div>
+                  <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">Status & Monitoring Peserta</h2>
+                  <p className="text-xs text-slate-500">Melihat daftar siswa yang sedang aktif mengerjakan soal secara real-time</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-emerald-100 text-emerald-800 text-xs font-bold py-1 px-3 rounded-full flex items-center gap-1">
+                    <span className="h-2 w-2 bg-emerald-500 rounded-full animate-ping" />
+                    Live monitoring terhubung
+                  </span>
+                </div>
+              </div>
+
+              {/* Grid table */}
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-[#0f172a] text-white">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider">No</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-left">Nama Peserta</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-left">No. Kartu Ujian</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-center">Kelas</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-center">Soal Terjawab</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-center">Status</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-center">Waktu Aktivitas</th>
+                      <th className="px-4 py-3 font-semibold text-xs tracking-wider text-center">Tindakan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 text-slate-700 font-medium">
+                    {activeProgress.map((student, idx) => {
+                      let statusBadge = "bg-slate-150 text-slate-700";
+                      if (student.status === "Mengerjakan") statusBadge = "bg-blue-100 text-blue-800 border border-blue-300";
+                      if (student.status === "Selesai") statusBadge = "bg-green-100 text-green-800 border border-green-300";
+                      if (student.status === "Pending/Ragu") statusBadge = "bg-yellow-100 text-yellow-800 border border-yellow-300";
+
+                      return (
+                        <tr key={student.participantId} className="hover:bg-slate-50">
+                          <td className="px-4 py-4 text-center font-mono font-bold text-slate-400">{idx + 1}</td>
+                          <td className="px-4 py-4 font-bold text-[#1e3c72]">{student.name}</td>
+                          <td className="px-4 py-4 font-mono text-xs">{student.examCardNumber}</td>
+                          <td className="px-4 py-4 text-center text-xs text-slate-500">{student.className || "XII TKJ 1"}</td>
+                          <td className="px-4 py-4 text-center font-mono">
+                            <span className="font-bold bg-blue-50 py-1 px-3 border border-blue-200 text-blue-900 rounded-full text-xs">
+                              {student.answeredCount} / {student.totalQuestions}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <span className={`text-xs font-black uppercase px-2.5 py-0.5 rounded ${statusBadge}`}>
+                              {student.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center text-xs font-mono text-slate-400">
+                            {new Date(student.lastActive).toLocaleTimeString("id-ID")} WIB
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            <button
+                              id={`btn-reset-${student.participantId}`}
+                              onClick={() => {
+                                onResetProgress(student.participantId);
+                                triggerToast(`Sesi login untuk siswa "${student.name}" berhasil direset! Siswa dapat masuk kembali.`);
+                              }}
+                              className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 hover:border-red-300 font-extrabold text-xs py-1 px-2.5 rounded cursor-pointer transition-all flex items-center gap-1.5 mx-auto active:scale-95"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              <span>Reset Login</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 text-xs rounded">
+                <div className="flex gap-2 font-bold text-yellow-900 mb-1">
+                  <Info className="h-4.5 w-4.5" />
+                  <span>Petunjuk Tindakan Reset Login:</span>
+                </div>
+                <p className="text-yellow-800 leading-relaxed font-semibold">
+                  Gunakan tombol "Reset Login" jika komputer/browser siswa mengalami hang, disconnect jaringan internet, atau siswa keluar secara paksa dari window ujian. Melakukan reset login memungkinkan peserta tersebut masuk kembali dari peramban/komputer mana pun menggunakan token yang sama tanpa kehilangan progres jawaban (karena didukung autosave).
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ======================= TAB 2: EXAM SESSION & SECURE TOKEN ======================= */}
+          {activeTab === "session" && (
+            <div className="space-y-6">
+              <div className="border-b border-slate-200 pb-3">
+                <h2 className="text-xl font-extrabold text-[#0f172a] tracking-tight">Pengaturan Sesi & Generate Token</h2>
+                <p className="text-xs text-slate-500">Buat sesi ujian, atur batasan alokasi waktu, dan kunci token akses ujian semester.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Panel edit settings */}
+                <div className="space-y-4 p-5 bg-slate-50 border border-slate-200 rounded-lg">
+                  <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-2 border-b pb-2 mb-4">
+                    <Settings className="h-4.5 w-4.5 text-[#1e3c72]" />
+                    Form Konfigurasi Ujian
+                  </h3>
+
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">CBT Nama Ujian / Mata Pelajaran:</label>
+                      <input
+                        id="session-subject-input"
+                        type="text"
+                        className="w-full bg-white border rounded px-3 py-2 font-semibold text-sm text-slate-800"
+                        value={sessionSubject}
+                        onChange={(e) => setSessionSubject(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Alokasi Waktu Ujian (Menit):</label>
+                      <input
+                        id="session-duration-input"
+                        type="number"
+                        className="w-full bg-white border rounded px-3 py-2 font-mono font-bold text-sm text-[#1e3c72]"
+                        value={sessionDuration}
+                        onChange={(e) => setSessionDuration(Number(e.target.value))}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Sesi Pelaksanaan:</label>
+                      <select id="session-select-active" className="w-full bg-white border rounded px-3 py-2 text-xs font-bold text-slate-700">
+                        <option value="ganjil">ULANGAN SEMESTER GANJIL - UTAMA</option>
+                        <option value="genap">ULANGAN SEMESTER GENAP - UTAMA</option>
+                        <option value="susulan">UJIAN SUSULAN SEMESTER</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button
+                    id="btn-save-session"
+                    onClick={handleSaveSessionSettings}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs py-2 px-4 rounded shadow-md cursor-pointer uppercase tracking-wider"
+                  >
+                    Simpan Konfigurasi
+                  </button>
+                </div>
+
+                {/* Panel generate Token */}
+                <div className="p-5 bg-amber-50/50 border border-amber-200 rounded-lg flex flex-col justify-between">
+                  <div className="space-y-4">
+                    <h3 className="font-extrabold text-[#1e3c72] text-sm flex items-center gap-2 border-b border-amber-200 pb-2">
+                      <Key className="h-4.5 w-4.5" />
+                      Token Pengaman Sesi Aktif
+                    </h3>
+
+                    <p className="text-xs text-amber-900 leading-relaxed font-semibold">
+                      Token ini digunakan oleh siswa saat masuk ke peranti login ANBK. Mengganti token ditujukan untuk menutup kesempatan bagi siswa terlambat yang ingin masuk di luar jam tanpa ijin.
+                    </p>
+
+                    <div className="text-center py-4 bg-white border-2 border-dashed border-amber-300 rounded">
+                      <p className="text-[10px] uppercase font-black text-slate-400">TOKEN SAAT INI:</p>
+                      <strong className="text-4xl font-mono text-amber-600 font-black tracking-widest">{sessionToken}</strong>
+                    </div>
+                  </div>
+
+                  <button
+                    id="btn-trigger-token"
+                    onClick={handleGenerateToken}
+                    className="w-full bg-[#1e3c72] hover:bg-[#152a51] text-white font-black text-sm py-3 px-4 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    <RefreshCw className="h-4.5 w-4.5" />
+                    GENERATE TOKEN BARU (6 DIGIT)
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ======================= TAB 3: MANAGE QUESTIONS BANK ======================= */}
+          {activeTab === "questions" && (
+            <div className="space-y-6 flex-grow overflow-y-auto">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-200 pb-3">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0f172a] tracking-tight">Manajemen Bank Soal</h2>
+                  <p className="text-xs text-slate-500">Kelola dan lihat daftar soal ujian semester yang terdaftar di bank soal saat ini.</p>
+                </div>
+                
+                {/* Excel tools simulation */}
+                <div className="flex gap-2">
+                  <button
+                    id="btn-import-soal-excel"
+                    onClick={() => simulateExcelUpload("soal")}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-2 px-3 rounded shadow transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                  >
+                    <FileSpreadsheet className="h-4 w-4" />
+                    <span>Import Excel Ujian</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Visual creation form */}
+                <form onSubmit={handleAddQuestion} className="space-y-4 p-5 bg-slate-50 border border-slate-200 rounded-lg h-fit">
+                  <h3 className="font-extrabold text-slate-800 text-sm border-b pb-2">
+                    Buat Soal Manual Baru
+                  </h3>
+
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Tipe Soal ANBK:</label>
+                      <select
+                        id="select-add-qtype"
+                        className="w-full bg-white border rounded px-2.5 py-1.5 font-bold text-slate-700"
+                        value={newQType}
+                        onChange={(e) => setNewQType(e.target.value as QuestionType)}
+                      >
+                        <option value={QuestionType.SINGLE_CHOICE}>Pilihan Ganda (Satu Jawaban)</option>
+                        <option value={QuestionType.COMPLEX_CHOICE}>Pilihan Ganda Kompleks (Checkbox)</option>
+                        <option value={QuestionType.MATCHING}>Menjodohkan (Grid Pasangan)</option>
+                        <option value={QuestionType.SHORT_ANSWER}>Isian Singkat</option>
+                        <option value={QuestionType.ESSAY}>Uraian / Essay</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Teks Pertanyaan Soal:</label>
+                      <textarea
+                        id="input-add-qtext"
+                        rows={3}
+                        className="w-full bg-white border rounded p-2 text-slate-800"
+                        placeholder="Ketik deskripsi atau soal..."
+                        value={newQText}
+                        onChange={(e) => setNewQText(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Bobot Points:</label>
+                      <input
+                        id="input-add-qpoints"
+                        type="number"
+                        className="w-full bg-white border rounded px-2.5 py-1.5 font-mono font-bold"
+                        value={newQPoints}
+                        onChange={(e) => setNewQPoints(Number(e.target.value))}
+                      />
+                    </div>
+
+                    {/* Hint text */}
+                    <p className="text-[10px] text-slate-400">
+                      * Opsi standar pilihan ganda dan grid menjodohkan acuan akan didaftarkan secara otomatis sebagai templat awal yang siap disunting.
+                    </p>
+                  </div>
+
+                  <button
+                    id="btn-submit-add-question"
+                    type="submit"
+                    className="w-full bg-[#1e3c72] hover:bg-blue-800 text-white font-extrabold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="h-4.5 w-4.5" />
+                    <span>Tambah Ke Bank Soal</span>
+                  </button>
+                </form>
+
+                {/* List bank items */}
+                <div className="lg:col-span-2 space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                  <h3 className="font-extrabold text-slate-800 text-sm flex justify-between items-center bg-slate-50 p-2 rounded border">
+                    <span>Daftar Soal Terdaftar ({questions.length} Soal)</span>
+                    <span className="text-[10px] bg-blue-100 text-[#1e3c72] px-2 py-0.5 rounded font-bold">Autosaved</span>
+                  </h3>
+
+                  {questions.map((q) => (
+                    <div
+                      key={q.id}
+                      className="p-4 border rounded-lg hover:border-slate-400 transition-all shadow-sm bg-white flex justify-between items-start gap-4"
+                    >
+                      <div className="space-y-1 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-[#1e3c72] text-white font-bold h-5 w-5 rounded-full flex items-center justify-center text-[10px]">
+                            {q.number}
+                          </span>
+                          <span className="bg-slate-100 border text-slate-600 font-bold px-2 py-0.5 rounded text-[10px]">
+                            {q.type}
+                          </span>
+                          <span className="font-black text-rose-700">
+                            {q.points} Poin
+                          </span>
+                        </div>
+                        <p className="text-slate-800 leading-relaxed font-semibold text-sm line-clamp-2">
+                          {q.text}
+                        </p>
+                      </div>
+
+                      <button
+                        id={`btn-del-q-${q.id}`}
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="text-slate-350 hover:text-red-600 p-1 border rounded bg-slate-50 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ======================= TAB 4: MANAGE STUDENTS DATA ======================= */}
+          {activeTab === "students" && (
+            <div className="space-y-6 flex-grow overflow-y-auto">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-200 pb-3">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0f172a] tracking-tight">Manajemen Data Siswa</h2>
+                  <p className="text-xs text-slate-500">Tambahkan daftar siswa semester secara manual mendetail atau melalui pengunggahan format Excel.</p>
+                </div>
+                
+                {/* Excel tools emulation */}
+                <button
+                  id="btn-import-siswa-excel"
+                  onClick={() => simulateExcelUpload("siswa")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-2 px-3 rounded shadow transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  <span>Import Excel Siswa</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* student create form */}
+                <form onSubmit={handleAddStudent} className="space-y-4 p-5 bg-slate-50 border border-slate-200 rounded-lg h-fit">
+                  <h3 className="font-extrabold text-slate-800 text-sm border-b pb-2">
+                    Registrasi Siswa Manual
+                  </h3>
+
+                  <div className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Nama Lengkap Siswa:</label>
+                      <input
+                        id="input-student-name"
+                        type="text"
+                        placeholder="Contoh: Dania Putri"
+                        className="w-full bg-white border rounded px-2.5 py-1.5 font-semibold text-slate-800"
+                        value={newSName}
+                        onChange={(e) => setNewSName(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Username / NISN:</label>
+                        <input
+                          id="input-student-user"
+                          type="text"
+                          placeholder="20260105"
+                          className="w-full bg-white border rounded px-2.5 py-1.5 font-mono"
+                          value={newSUsername}
+                          onChange={(e) => setNewSUsername(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Password:</label>
+                        <input
+                          id="input-student-pass"
+                          type="text"
+                          placeholder="siswa123"
+                          className="w-full bg-white border rounded px-2.5 py-1.5"
+                          value={newSPassword}
+                          onChange={(e) => setNewSPassword(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Kelamin:</label>
+                        <select
+                          id="select-student-gender"
+                          className="w-full bg-white border rounded px-2.5 py-1.5"
+                          value={newSGender}
+                          onChange={(e) => setNewSGender(e.target.value as "L" | "P")}
+                        >
+                          <option value="L">Laki-Laki (L)</option>
+                          <option value="P">Perempuan (P)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Kelas Rombel:</label>
+                        <select
+                          id="select-student-class"
+                          className="w-full bg-white border rounded px-2.5 py-1.5"
+                          value={newSClass}
+                          onChange={(e) => setNewSClass(e.target.value)}
+                        >
+                          <option value="XII TKJ 1">XII TKJ 1</option>
+                          <option value="XII TKJ 2">XII TKJ 2</option>
+                          <option value="XII RPL 1">XII RPL 1</option>
+                          <option value="XII RPL 2">XII RPL 2</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Nomor Kartu Ujian (Optional):</label>
+                      <input
+                        id="input-student-card"
+                        type="text"
+                        placeholder="Contoh: U-01010045-9"
+                        className="w-full bg-white border rounded px-2.5 py-1.5 font-mono"
+                        value={newSCard}
+                        onChange={(e) => setNewSCard(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    id="btn-submit-add-student"
+                    type="submit"
+                    className="w-full bg-[#1e3c72] hover:bg-blue-800 text-white font-extrabold text-xs py-2 rounded shadow transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="h-4.5 w-4.5" />
+                    <span>Daftarkan Siswa</span>
+                  </button>
+                </form>
+
+                {/* List students */}
+                <div className="lg:col-span-2 space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  <h3 className="font-extrabold text-slate-800 text-sm bg-slate-50 p-2 rounded border">
+                    Siswa Terdaftar ({participants.length} Siswa)
+                  </h3>
+
+                  <div className="border border-slate-200 rounded overflow-hidden">
+                    <table className="min-w-full divide-y divide-slate-200 text-xs">
+                      <tbody className="divide-y divide-slate-200 bg-white">
+                        {participants.map((p) => (
+                          <tr key={p.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-3 font-bold text-[#1e3c72]">{p.name}</td>
+                            <td className="px-3 py-3 font-mono text-slate-500">{p.username} / Password: {p.passwordHash}</td>
+                            <td className="px-3 py-3 font-semibold text-slate-600">{p.className}</td>
+                            <td className="px-3 py-3 font-mono text-slate-400">{p.gender}</td>
+                            <td className="px-3 py-3 text-center">
+                              <button
+                                id={`btn-del-student-${p.id}`}
+                                onClick={() => handleDeleteStudent(p.id)}
+                                className="text-slate-350 hover:text-red-600 p-1 cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {/* ======================= TAB 5: GRADES AND RECAPITULATION ======================= */}
+          {activeTab === "grades" && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center border-b border-slate-200 pb-3">
+                <div>
+                  <h2 className="text-xl font-extrabold text-[#0f172a] tracking-tight">Unduh dan Rekapitulasi Nilai</h2>
+                  <p className="text-xs text-slate-500">Melihat perolehan nilai, persentase jawaban benar, serta mengunduh rekapitulasi data.</p>
+                </div>
+
+                <button
+                  id="btn-download-grades-csv"
+                  onClick={downloadResultsCSV}
+                  className="bg-yellow-500 hover:bg-yellow-600 text-[#0f172a] hover:text-black font-extrabold text-xs py-2 px-4 rounded border border-yellow-600 shadow-md flex items-center gap-1.5 transition-all cursor-pointer uppercase tracking-wider active:scale-95"
+                >
+                  <Download className="h-4.5 w-4.5" />
+                  <span>Unduh File Excel (CSV)</span>
+                </button>
+              </div>
+
+              {/* Table grades */}
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-[#0f172a] text-white">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold text-xs text-center w-12">No</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-left">Nama Lengkap</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-left">Kode Kartu</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-center">Kelas</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-center">Benar</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-center">Salah</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-center">Skor Angka (Skala 100)</th>
+                      <th className="px-4 py-3 font-semibold text-xs text-center">Kelulusan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white text-slate-700 font-semibold text-xs">
+                    {activeProgress.map((p, idx) => {
+                      const finalScore = p.score ?? 0;
+                      const correct = Math.round((finalScore * p.totalQuestions) / 100);
+                      const wrong = p.totalQuestions - correct;
+                      const pass = finalScore >= 75;
+
+                      return (
+                        <tr key={p.participantId} className="hover:bg-slate-50">
+                          <td className="px-4 py-4 text-center font-mono text-slate-400">{idx + 1}</td>
+                          <td className="px-4 py-4 font-bold text-[#1e3c72]">{p.name}</td>
+                          <td className="px-4 py-4 font-mono text-slate-500">{p.examCardNumber}</td>
+                          <td className="px-4 py-4 text-center font-semibold text-slate-600">{p.className || "XII TKJ 1"}</td>
+                          <td className="px-4 py-4 text-center font-mono text-emerald-700">{correct}</td>
+                          <td className="px-4 py-4 text-center font-mono text-rose-700">{wrong}</td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="font-mono font-black text-sm bg-slate-100 py-1 px-3 rounded border text-slate-900">
+                              {finalScore}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-center">
+                            {p.status === "Selesai" ? (
+                              <span
+                                className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                                  pass
+                                    ? "bg-emerald-100 border border-emerald-300 text-emerald-800"
+                                    : "bg-amber-100 border border-amber-300 text-amber-800"
+                                }`}
+                              >
+                                {pass ? "LULUS KKM" : "REMIDIAL"}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">Sedang Mengikuti Ujian</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ======================= TAB 6: BASE DATABASE SCHEMAS ======================= */}
+          {activeTab === "schema" && (
+            <div className="space-y-6 flex-grow overflow-y-auto">
+              <div className="border-b border-slate-200 pb-3">
+                <h2 className="text-xl font-extrabold text-[#0f172a] tracking-tight">Desain & Skema Database Dasar</h2>
+                <p className="text-xs text-slate-500">Mempelajari struktur arsitektur tabel relasional (MySQL / PostgreSQL) yang siap dipasang.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Relational Database schemas SQL code blocks */}
+                <div className="space-y-3">
+                  <span className="bg-[#1e3c72] text-white font-extrabold text-[10px] px-2.5 py-1 rounded uppercase">
+                    Skema SQL Relasional (Drizzle / PostgreSQL)
+                  </span>
+                  
+                  <div className="bg-slate-950 p-4 rounded-lg font-mono text-[11px] text-emerald-400 overflow-x-auto border border-slate-800 leading-relaxed shadow-inner max-h-80">
+<pre>{`-- 1. Tabel Sesi Ujian (exam_sessions)
+CREATE TABLE exam_sessions (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    token VARCHAR(6) UNIQUE NOT NULL,
+    duration_minutes INT DEFAULT 90,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Tabel Soal (exam_questions)
+CREATE TABLE exam_questions (
+    id VARCHAR(50) PRIMARY KEY,
+    number INT NOT NULL,
+    type VARCHAR(30) NOT NULL, -- Pilihan Ganda, Essay, dll
+    text TEXT NOT NULL,
+    image_url TEXT,
+    correct_answer TEXT, -- format JSON jika kompleks / menjodohkan
+    points INT DEFAULT 20
+);
+
+-- 3. Tabel Siswa (participants)
+CREATE TABLE participants (
+    id VARCHAR(50) PRIMARY KEY,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    gender CHAR(1) CHECK (gender IN ('L', 'P')),
+    class_name VARCHAR(100)
+);
+
+-- 4. Tabel Jawaban Siswa (student_responses)
+CREATE TABLE student_responses (
+    id SERIAL PRIMARY KEY,
+    participant_id VARCHAR(50) REFERENCES participants(id),
+    question_id VARCHAR(50) REFERENCES exam_questions(id),
+    answer JSONB, -- menyimpan text, array opsi, atau koordinat menjodohkan
+    is_doubtful BOOLEAN DEFAULT FALSE,
+    saved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`}</pre>
+                  </div>
+                </div>
+
+                {/* Firestore document database style schemas */}
+                <div className="space-y-3">
+                  <span className="bg-[#1b5e20] text-white font-extrabold text-[10px] px-2.5 py-1 rounded uppercase">
+                    Skema Dokumen (NoSQL / Firestore Blueprint)
+                  </span>
+
+                  <div className="bg-slate-950 p-4 rounded-lg font-mono text-[11px] text-orange-400 overflow-x-auto border border-slate-800 leading-relaxed shadow-inner max-h-80">
+<pre>{`// 1. Koleksi "sessions"
+{
+  "docId": "session_ganjil_2026",
+  "name": "ULANGAN SEMESTER GANJIL",
+  "token": "ANBK26",
+  "durationMinutes": 90,
+  "active": true
+}
+
+// 2. Koleksi "questions"
+{
+  "docId": "q1",
+  "number": 1,
+  "type": "SINGLE_CHOICE",
+  "text": "Perangkat keras utama CPU...",
+  "choices": [
+    { "id": "A", "text": "RAM" },
+    { "id": "B", "text": "CPU" }
+  ],
+  "correctAnswer": "B",
+  "points": 20
+}
+
+// 3. Koleksi "progress_monitoring"
+{
+  "docId": "p1",
+  "name": "Ahmad Habibi",
+  "answeredCount": 3,
+  "totalQuestions": 5,
+  "status": "Mengerjakan",
+  "lastActive": "2026-06-08T12:05:00Z"
+}`}</pre>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+        </main>
+      </div>
+
+      {/* Footer Khas Admin */}
+      <footer className="bg-[#0f172a] text-slate-500 py-3 text-center text-xs border-t border-slate-800">
+        <p className="font-semibold">
+          © 2026 Panel Proktor CBT-ANBK • Direktorat Jenderal Pendidikan Menengah Atas & Kejuruan RI
+        </p>
+      </footer>
+
+    </div>
+  );
+}
