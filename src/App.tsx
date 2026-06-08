@@ -59,9 +59,21 @@ export default function App() {
   }, [studentResponses, currentStudent, questions]);
 
   // Handle successful login
-  const handleLoginSuccess = (student: Participant, token: string) => {
+  const handleLoginSuccess = (
+    student: Participant,
+    token: string,
+    selectedSubject?: string,
+    selectedClass?: string
+  ) => {
     setCurrentStudent(student);
     setView("confirm");
+
+    if (selectedSubject) {
+      setSession((prev) => ({
+        ...prev,
+        name: selectedSubject,
+      }));
+    }
 
     // Initialize or load existing responses for the student
     setStudentResponses({});

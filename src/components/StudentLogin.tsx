@@ -1,11 +1,11 @@
 import React, { useState } from "react";
-import { LogIn, Key, User, ShieldAlert } from "lucide-react";
+import { LogIn, Key, User, ShieldAlert, BookOpen, GraduationCap } from "lucide-react";
 import { Participant, ExamSession } from "../types";
 
 interface StudentLoginProps {
   participants: Participant[];
   session: ExamSession;
-  onLoginSuccess: (student: Participant, enteredToken: string) => void;
+  onLoginSuccess: (student: Participant, enteredToken: string, selectedSubject?: string, selectedClass?: string) => void;
   onToggleAdmin: () => void;
 }
 
@@ -18,14 +18,35 @@ export default function StudentLogin({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const uniqueClasses = Array.from(new Set(participants.map((p) => p.className))).sort();
+
+  const baseSubjects = [
+    "Informatika / Ilmu Komputer",
+    "Matematika",
+    "Bahasa Indonesia",
+    "Bahasa Inggris",
+    "Fisika",
+    "Kimia",
+    "Biologi",
+    "Sejarah Indonesia",
+    "Pendidikan Pancasila (PPKn)"
+  ];
+
+  const subjects = [...baseSubjects];
+  if (session && session.name && !subjects.includes(session.name)) {
+    subjects.unshift(session.name);
+  }
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
 
-    if (!username || !password || !token) {
-      setErrorMessage("Harap lengkapi semua kolom input (Username, Password, dan Token Ujian).");
+    if (!username || !password || !token || !selectedClass || !selectedSubject) {
+      setErrorMessage("Harap lengkapi semua kolom input (Mata Pelajaran, Kelas, Username, Password, dan Token Ujian).");
       return;
     }
 
@@ -44,6 +65,11 @@ export default function StudentLogin({
       return;
     }
 
+    if (matchedStudent.className !== selectedClass) {
+      setErrorMessage(`Siswa "${matchedStudent.name}" terdaftar di kelas "${matchedStudent.className}", bukan kelas "${selectedClass}".`);
+      return;
+    }
+
     // Verify token matches current active session (case insensitive)
     if (token.trim().toUpperCase() !== session.token.toUpperCase()) {
       setErrorMessage("Token Ujian tidak valid atau salah untuk sesi ini.");
@@ -51,7 +77,7 @@ export default function StudentLogin({
     }
 
     // Auth Success
-    onLoginSuccess(matchedStudent, token.trim().toUpperCase());
+    onLoginSuccess(matchedStudent, token.trim().toUpperCase(), selectedSubject, selectedClass);
   };
 
   return (
@@ -121,6 +147,56 @@ export default function StudentLogin({
             )}
 
             <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Pilih Kelas
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+                      <GraduationCap className="h-5 w-5" />
+                    </span>
+                    <select
+                      id="select-kelas"
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-2 pl-10 focus:outline-none focus:ring-2 focus:ring-[#1e3c72] focus:border-[#1e3c72] font-semibold text-slate-800 text-sm h-[38px] cursor-pointer"
+                      value={selectedClass}
+                      onChange={(e) => setSelectedClass(e.target.value)}
+                    >
+                      <option value="">-- Pilih Kelas --</option>
+                      {uniqueClasses.map((cls) => (
+                        <option key={cls} value={cls}>
+                          {cls}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">
+                    Pilih Mata Pelajaran
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 pointer-events-none">
+                      <BookOpen className="h-5 w-5" />
+                    </span>
+                    <select
+                      id="select-subject"
+                      className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-2 pl-10 focus:outline-none focus:ring-2 focus:ring-[#1e3c72] focus:border-[#1e3c72] font-semibold text-slate-800 text-sm h-[38px] cursor-pointer"
+                      value={selectedSubject}
+                      onChange={(e) => setSelectedSubject(e.target.value)}
+                    >
+                      <option value="">-- Pilih Mapel --</option>
+                      {subjects.map((sub) => (
+                        <option key={sub} value={sub}>
+                          {sub}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
                   Username / No. Peserta
