@@ -69,6 +69,9 @@ export default function AdminDashboard({
   const [pdfImportStatus, setPdfImportStatus] = useState<string>("");
   const [pdfImportError, setPdfImportError] = useState<string>("");
   const [dragActive, setDragActive] = useState<boolean>(false);
+  const [clientGeminiKey, setClientGeminiKey] = useState<string>(() => {
+    return localStorage.getItem("client_gemini_api_key") || "";
+  });
 
   // States for subject selection in manual input and PDF import
   const [selectedSubject, setSelectedSubject] = useState<string>("Asesmen Literasi (Membaca)");
@@ -264,30 +267,169 @@ export default function AdminDashboard({
         try {
           const rawResult = reader.result as string;
           const base64String = rawResult.split(",")[1];
-          setPdfImportStatus("Menghubungkan ke Gemini AI & mengetik ulang butir soal... (Bisa memakan waktu 15-30 detik)");
+          setPdfImportStatus("Menghubungkan ke server CBT & memproses berkas...");
 
           const targetSubj = customPdfSubjectActive ? customPdfSubjectText.trim() : pdfSubject;
+          let parsedQuestionsRaw: any[] = [];
+          let executedDirectly = false;
 
-          const res = await fetch("/api/questions/import-pdf", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              fileBase64: base64String,
-              mimeType: pdfFile.type || "application/pdf",
-              numQuestions: pdfNumQuestions,
-              subject: targetSubj || "Umum/Lainnya",
-            }),
-          });
+          try {
+            // First attempt: Server-Side API proxy
+            const res = await fetch("/api/questions/import-pdf", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                fileBase64: base64String,
+                mimeType: pdfFile.type || "application/pdf",
+                numQuestions: pdfNumQuestions,
+                subject: targetSubj || "Umum/Lainnya",
+              }),
+            });
 
-          const data = await res.json();
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("text/html")) {
+              throw new Error("SERVER_HTML_FALLBACK");
+            }
 
-          if (!res.ok || !data.success) {
-            throw new Error(data.error || "Gagal mengimpor dari AI server.");
+            const data = await res.json();
+            if (res.ok && data.success) {
+              parsedQuestionsRaw = data.questions;
+            } else {
+              throw new Error(data.error || "Gagal mengimpor dari AI server.");
+            }
+          } catch (serverErr: any) {
+            console.warn("Express server-side error, attempting direct client-side fallback...", serverErr);
+            
+            // Second attempt: Client-side direct call to Google Gemini API (great for serverless static hosting like GitHub Pages)
+            const activeKey = clientGeminiKey.trim();
+            if (!activeKey) {
+              throw new Error(
+                "Aplikasi berjalan di lingkungan serverless/statis (seperti GitHub Pages) sehingga server backend proxy tidak aktif. " +
+                "Silakan masukkan Kunci API Gemini Anda pada kolom di bawah untuk mengimpor berkas PDF secara langsung."
+              );
+            }
+
+            setPdfImportStatus("Server luring dideteksi. Menjalankan pengetikan AI secara langsung dari peramban (Client-side)...");
+            executedDirectly = true;
+            const requestedCount = Math.min(100, Math.max(1, Number(pdfNumQuestions) || 10));
+
+            const promptText = `Anda adalah asisten penguji Asesmen Nasional (ANBK) yang sangat teliti.
+Tugas Anda adalah memindai berkas dokumen dokumen soal tersebut, dan mengetik ulang dengan teks yang SAMA PERSIS (word-for-word) sesuai dengan dokumen/soal asli di berkas tersebut tanpa ditambah-tambah atau dikurangi.
+
+Semua soal ini dikhususkan untuk mata pelajaran: "${targetSubj}".
+
+Ketentuan tambahan:
+1. Ekstrak dan hasilkan tepat ${requestedCount} butir soal dari dokumen tersebut.
+2. Jika dokumen memiliki lebih dari ${requestedCount} soal, pilih ${requestedCount} soal pertama yang ada demi kepatuhan jumlah.
+3. Jika dokumen memiliki kurang dari ${requestedCount} soal, ketik semua soal yang ada dari dokumen terlebih dahulu secara verbatim/sama persis, lalu untuk memenuhi kuota ${requestedCount} soal, buatlah soal tambahan baru berkualitas tinggi yang relevan dengan topik dokumen tersebut DAN memiliki kaitan erat dengan mata pelajaran "${targetSubj}".
+4. Setiap butir soal harus ditandai dengan field "subject" berisi "${targetSubj}" di JSON output Anda.
+5. Format output HARUS berupa JSON array yang valid sesuai schema berikut.
+6. Soal harus terbagi secara rasional ke dalam tipe-tipe soal standard ANBK: "SINGLE_CHOICE" (Pilihan ganda biasa), "COMPLEX_CHOICE" (Pilihan ganda kompleks - checkbox), "MATCHING" (Menjodohkan), "SHORT_ANSWER" (Isian singkat), atau "ESSAY" (Uraian).
+
+Setiap objek soal dalam JSON array harus memiliki field:
+- id: string unik contoh: "q_pdf_" + angka acak
+- number: nomor soal berurutan (dari 1 sampai ${requestedCount})
+- type: string bernilai salah satu dari: "SINGLE_CHOICE", "COMPLEX_CHOICE", "MATCHING", "SHORT_ANSWER", "ESSAY"
+- text: teks pertanyaan dari soal (harus diketik persis sama dengan di dokumen)
+- subject: string dengan nilai "${targetSubj}"
+- points: angka bobot poin (default: 10 atau 20)
+- choices: array dari objek { id: "A", text: "Teks opsi" } (wajib jika tipe SINGLE_CHOICE atau COMPLEX_CHOICE)
+- matchingRows: array dari objek { id: "row1", text: "Teks baris/pernyataan kiri" } (wajib jika tipe MATCHING)
+- matchingCols: array dari objek { id: "col1", text: "Teks kolom/kriteria kanan" } (wajib jika tipe MATCHING)
+- correctAnswer: untuk "SINGLE_CHOICE" isikan ID opsi (misal "A"). Untuk "COMPLEX_CHOICE" isikan opsi ber-koma (misal "A,C"). Untuk "MATCHING" buat dalam string terformat pasang-berpasangan rowId-colId dipisah koma (misal "row1-col1,row2-col2"). Untuk "SHORT_ANSWER" dan "ESSAY" isikan perkiraan jawaban acuan dalam bentuk string teks biasa.`;
+
+            const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      {
+                        inlineData: {
+                          mimeType: pdfFile.type || "application/pdf",
+                          data: base64String,
+                        }
+                      },
+                      {
+                        text: promptText,
+                      }
+                    ]
+                  }
+                ],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: "ARRAY",
+                    items: {
+                      type: "OBJECT",
+                      properties: {
+                        id: { type: "STRING" },
+                        number: { type: "INTEGER" },
+                        type: {
+                          type: "STRING",
+                          description: "Must be one of: 'SINGLE_CHOICE', 'COMPLEX_CHOICE', 'MATCHING', 'SHORT_ANSWER', 'ESSAY'"
+                        },
+                        text: { type: "STRING" },
+                        subject: { type: "STRING" },
+                        choices: {
+                          type: "ARRAY",
+                          items: {
+                            type: "OBJECT",
+                            properties: {
+                              id: { type: "STRING" },
+                              text: { type: "STRING" }
+                            },
+                            required: ["id", "text"]
+                          }
+                        },
+                        matchingRows: {
+                          type: "ARRAY",
+                          items: {
+                            type: "OBJECT",
+                            properties: {
+                              id: { type: "STRING" },
+                              text: { type: "STRING" }
+                            },
+                            required: ["id", "text"]
+                          }
+                        },
+                        matchingCols: {
+                          type: "ARRAY",
+                          items: {
+                            type: "OBJECT",
+                            properties: {
+                              id: { type: "STRING" },
+                              text: { type: "STRING" }
+                            },
+                            required: ["id", "text"]
+                          }
+                        },
+                        correctAnswer: { type: "STRING" },
+                        points: { type: "INTEGER" }
+                      },
+                      required: ["id", "number", "type", "text", "points"]
+                    }
+                  }
+                }
+              })
+            });
+
+            if (!geminiRes.ok) {
+              const errJson = await geminiRes.json().catch(() => ({}));
+              throw new Error(errJson?.error?.message || `Gagal menghubungi API Gemini langsung (${geminiRes.status}). Harap periksa kevalidan API Key Anda.`);
+            }
+
+            const gData = await geminiRes.json();
+            const textResponse = gData?.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+            parsedQuestionsRaw = JSON.parse(textResponse);
           }
 
-          const parsedQuestions: Question[] = data.questions.map((q: any, index: number) => {
+          const parsedQuestions: Question[] = parsedQuestionsRaw.map((q: any, index: number) => {
             let answerObj = q.correctAnswer;
             if (q.type === QuestionType.MATCHING && typeof q.correctAnswer === "string") {
               try {
@@ -319,7 +461,11 @@ export default function AdminDashboard({
           onUpdateQuestions([...questions, ...parsedQuestions]);
           setPdfFile(null);
           setPdfImportStatus("");
-          triggerToast(`Berhasil mengimpor ${parsedQuestions.length} butir soal secara presisi via Gemini AI!`);
+          triggerToast(
+            `Berhasil mengimpor ${parsedQuestions.length} butir soal secara presisi via Gemini AI ${
+              executedDirectly ? "(Koneksi Langsung)" : "(Melalui Server Proxy)"
+            }!`
+          );
         } catch (err: any) {
           console.error("Gemini upload error:", err);
           setPdfImportError(err.message || "Gagal mengolah dokumen menggunakan Gemini AI.");
@@ -1031,6 +1177,34 @@ export default function AdminDashboard({
                       </p>
 
                       <div className="space-y-4 text-xs">
+                        {/* Configuration section for Serverless/GitHub deployments */}
+                        <div className="bg-purple-50/50 p-3 rounded-md border border-purple-200 space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-purple-900 text-[10px] uppercase tracking-wider flex items-center gap-1">
+                              ⚙️ Pengaturan Lingkungan Statis (GitHub / Client-only)
+                            </span>
+                            <span className="text-[9px] bg-purple-200 text-purple-800 font-bold px-1.5 py-0.5 rounded">
+                              Penting untuk GitHub
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
+                            Jika dijalankan secara statis (seperti di GitHub Pages), backend proxy server luring tidak tersedia. Masukkan Kunci API Gemini pribadi Anda agar pemindaian dokumen tetap berjalan langsung dari peramban Anda. API Key disimpan aman di penyimpanan lokal peramban (<code className="font-mono bg-slate-100 p-0.5 text-rose-650 rounded text-[9px]">localStorage</code>).
+                          </p>
+                          <div className="pt-1">
+                            <input
+                              type="password"
+                              className="w-full bg-white border border-slate-350 rounded px-2.5 py-1.5 text-[11px] text-slate-800 font-mono focus:ring-1 focus:ring-purple-500 focus:outline-none"
+                              placeholder="Masukkan Kunci API Gemini Anda (AIzaSy...)"
+                              value={clientGeminiKey}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setClientGeminiKey(val);
+                                localStorage.setItem("client_gemini_api_key", val);
+                              }}
+                            />
+                          </div>
+                        </div>
+
                         {/* Mata Pelajaran Selector */}
                         <div className="bg-white p-3 rounded-md border border-slate-200 space-y-1.5">
                           <label className="block font-bold text-slate-700 text-[11px] uppercase tracking-wider">
