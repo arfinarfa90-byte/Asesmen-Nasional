@@ -274,6 +274,19 @@ export default function AdminDashboard({
           let executedDirectly = false;
 
           try {
+            // Check if we are running in static server environment (e.g., GitHub Pages)
+            const isStaticOrGithubPages = 
+              window.location.hostname.includes("github.io") || 
+              window.location.hostname.includes("github.com") ||
+              window.location.hostname.includes("vercel.app") || 
+              window.location.hostname.includes("netlify.app") ||
+              window.location.hostname.includes("pages.dev");
+
+            if (isStaticOrGithubPages) {
+              // Direct skip server-side on static site, forcing client-side fallback
+              throw new Error("SERVER_HTML_FALLBACK_STATIC_DETECTED");
+            }
+
             // First attempt: Server-Side API proxy
             const res = await fetch("/api/questions/import-pdf", {
               method: "POST",
@@ -293,7 +306,18 @@ export default function AdminDashboard({
               throw new Error("SERVER_HTML_FALLBACK");
             }
 
-            const data = await res.json();
+            const textData = await res.text();
+            if (textData.trim().startsWith("<") || textData.trim().startsWith("<!DOCTYPE")) {
+              throw new Error("SERVER_HTML_FALLBACK");
+            }
+
+            let data;
+            try {
+              data = JSON.parse(textData);
+            } catch (e) {
+              throw new Error("Respon dari server backend tidak valid (Bukan JSON).");
+            }
+
             if (res.ok && data.success) {
               parsedQuestionsRaw = data.questions;
             } else {
@@ -307,7 +331,7 @@ export default function AdminDashboard({
             if (!activeKey) {
               throw new Error(
                 "Aplikasi berjalan di lingkungan serverless/statis (seperti GitHub Pages) sehingga server backend proxy tidak aktif. " +
-                "Silakan masukkan Kunci API Gemini Anda pada kolom di bawah untuk mengimpor berkas PDF secara langsung."
+                "Silakan masukkan Kunci API Gemini Anda pada kolom di luar/bawah untuk mengimpor berkas PDF secara langsung."
               );
             }
 
@@ -419,12 +443,25 @@ Setiap objek soal dalam JSON array harus memiliki field:
               })
             });
 
-            if (!geminiRes.ok) {
-              const errJson = await geminiRes.json().catch(() => ({}));
-              throw new Error(errJson?.error?.message || `Gagal menghubungi API Gemini langsung (${geminiRes.status}). Harap periksa kevalidan API Key Anda.`);
+            const geminiTextRes = await geminiRes.text().catch(() => "");
+            if (geminiTextRes.trim().startsWith("<") || geminiTextRes.trim().startsWith("<!DOCTYPE") || geminiRes.headers.get("content-type")?.includes("text/html")) {
+              throw new Error("Mendapatkan berkas HTML bukan JSON dari API Google Gemini. Kemungkinan alamat API diblokir oleh sistem keamanan jaringan sekolah atau provider internet Anda (internet positif/blockpage).");
             }
 
-            const gData = await geminiRes.json();
+            if (!geminiRes.ok) {
+              let errJson: any = {};
+              try {
+                errJson = JSON.parse(geminiTextRes);
+              } catch (_) {}
+              throw new Error(errJson?.error?.message || `Gagal menghubungi API Gemini langsung berkode (${geminiRes.status}). Harap periksa apakah API Key Anda valid.`);
+            }
+
+            let gData;
+            try {
+              gData = JSON.parse(geminiTextRes);
+            } catch (err) {
+              throw new Error("Hasil dari API Gemini bukan merupakan berkas JSON yang valid.");
+            }
             const textResponse = gData?.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
             parsedQuestionsRaw = JSON.parse(textResponse);
           }
